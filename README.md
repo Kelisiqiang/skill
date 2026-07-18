@@ -7,7 +7,7 @@
 | Skill | 说明 | 路径 |
 | --- | --- | --- |
 | **pdf-watermark-removal** | PDF 去水印工具：支持灰色斜向平铺水印与彩色水印；分层型无损删除、扫描型像素法去灰；输出体积受控（≤ 源文件 1.5 倍） | [pdf-watermark-removal/](pdf-watermark-removal/) |
-| **caixin-weekly** | 财新周刊整期归档：抓取最新一期全部文章全文（含分页长文、题图、导语、图说），清洗后生成单文件 Markdown 合订本 `[财新周刊]YYYY.NN.md`；六步流程含交付前自动校验，支持 Kimi / Claude Code / Codex 三平台 | [caixin-weekly/](caixin-weekly/) |
+| **caixin-weekly** | 财新周刊整期归档：抓取最新一期全部文章全文（含分页长文、题图、导语、图说），清洗后生成单文件 Markdown 合订本 `[财新周刊]YYYY.NN.md`；六步流程含交付前自动校验，支持 Kimi / Claude Code / Codex 三平台 | [caixin-weekly/](caixin-weekly/) |（需登录财新订阅账号）
 
 ## 使用方式
 
