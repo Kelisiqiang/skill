@@ -1,19 +1,23 @@
 # PDF 去水印 Skill (pdf-watermark-removal)
 
-智能识别并去除 PDF 中的各类水印。支持**双层处理路径**：分层/矢量型 PDF 直接删除水印对象（无损、毫秒级），扫描/图片融合型 PDF 用像素级算法去除灰色斜铺水印。
+智能识别并去除 PDF 中的各类水印。**核心能力**：对「有文本层 + Form 水印」的公众号/文档 PDF，
+用 **Form XObject 对象级无损删除**（正文、图片、文本可选性毫发无损，体积反而更小）；对扫描件/图片融合水印，
+用像素级灰度/彩色检测兜底（连通域保护 + JPEG 压缩，体积强制 ≤ 源文件 1.5 倍）。
 
 ---
 
 ## ✨ 特性
 
-- 🧠 **自动分类**：先判断 PDF 类型，选对应策略（不是一刀切）
-  - **LAYRED（有文本层）** → 直接 `redact` 遮盖水印对象，不损失正文质量
-  - **SCANNED（纯图/扫描件）** → 灰度像素检测 + 连通域保护 + JPEG 压缩
-- 🖼️ **灰色斜向平铺水印**：浅灰色半透明文字（如 "+助理微信，xxx入群"）精准去除
-- 🔍 **连通域面积过滤**：自动区分「水印（细碎笔画）」与「图片内容（大块灰色）」，保护正文图片不被误删
-- 📦 **输出体积受控**：强制 JPEG Q80 压缩，输出 ≤ 源文件 1.5 倍
-- 🎯 **彩色水印**：支持粉色/红色等彩色水印（RGB 阈值匹配）
-- ⚡ **批量处理**：目录批量、自动分类、并发统计
+- 🧠 **自动分类**：先判 PDF 类型，选对应策略（不一刀切）
+  - **LAYERED（有文本层）** → 首选 **Form XObject 无损删除**（毫秒级、零残影、正文完整、文本可选）
+  - **SCANNED（纯图/扫描件）** → 像素级灰度/彩色检测 + 连通域保护 + JPEG 压缩
+- 🎯 **Form XObject 无损删除**：绝大多数「公众号导出 PDF / WPS 生成 PDF」的水印都是独立可复用对象，
+  直接删其绘制指令即可，不伤正文（曾因误判走像素法导致文本层被毁，已修正）
+- 🖼️ **灰色斜向平铺水印**：浅灰色半透明文字精准去除（像素法兜底）
+- 🔍 **连通域面积过滤**：区分「水印（细碎笔画）」与「图片内容（大块灰色）」，保护正文图片
+- 📦 **输出体积受控**：强制 JPEG 压缩 + `garbage=4, deflate=True`，输出 ≤ 源文件 1.5 倍
+- 🎯 **彩色水印**：支持粉色/红色等（RGB 阈值匹配）
+- ⚡ **批量处理**：目录批量、自动分类、统一统计
 
 ---
 
@@ -25,75 +29,85 @@
 pip install PyMuPDF Pillow numpy scipy
 ```
 
-### 2. 命令行用法
+### 2. 命令行用法（推荐主脚本 `remove_watermark.py`）
 
 ```bash
-# 默认：自动分类 + 智能去水印
-python pdf_watermark.py input.pdf
+# 自动分类 + 智能去水印（单文件或整个目录，推荐）
+python remove_watermark.py input.pdf
+python remove_watermark.py ./pdfs/
 
-# 指定输出目录
-python pdf_watermark.py input.pdf -o results/
+# 仅用 Form XObject 无损法（调试/确认分层结构）
+python remove_watermark.py input.pdf --mode form
 
-# 彩色水印（粉色，如微信截图标题）
-python pdf_watermark.py input.pdf --mode color --rmin 180 --gmax 120 --bmax 130
+# 强制像素法（扫描件或兜底调试）
+python remove_watermark.py input.pdf --mode gray  --quality 80
+python remove_watermark.py input.pdf --mode color --rmin 180 --gmax 120 --bmax 130
 
-# 批量处理整个目录
-python pdf_watermark.py ./pdfs/
+# 指定输出路径 / 目录
+python remove_watermark.py input.pdf -o results/clean.pdf
 ```
 
-### 3. 在 WorkBuddy 对话中触发
+### 3. 老脚本 `pdf_watermark.py`（纯像素法，仅扫描件/调试）
+
+```bash
+python pdf_watermark.py input.pdf --mode gray
+python pdf_watermark.py input.pdf --mode color --rmin 180 --gmax 120 --bmax 130
+```
+
+### 4. 在 WorkBuddy 对话中触发
 
 当用户说"去水印"、"清理水印"、"去除水印"、"PDF 去水印" 并提供 PDF 路径时，自动处理。
 
 ---
 
-## 🧭 双路径工作原理（核心）
+## 🧭 工作原理（核心：规则0 + 规则0.5）
 
 ```
 输入 PDF
    │
-   ▼
-第1页 get_text() 词数 > 50 且 无整页大图?
+   ▼ 规则0: 分类
+第1页 get_text() > 50 字 且 非整页大图?
    │
-   ├─ 是 ──▶ 【分层/矢量型 LAYERED】
-   │            • 搜索推广关键词文本块 + 右下角二维码图片
-   │            • add_redact_annot() + apply_redactions() 白色遮盖
-   │            ✅ 无损、毫秒级、保留排版
+   ├─ 是(LAYERED) ──▶ 规则0.5 首选: Form XObject 无损删除
+   │                  · 灰度填充的 Form  = 水印 → 删其 Do 的 /Artifact BDC..EMC 整块
+   │                  · 黑字+页眉/页脚位置的 Form = 推广 → 同上删
+   │                  save(garbage=4, deflate, clean)
+   │                  ✅ 正文/图片毫发无损、文本可选、体积更小
+   │                  └ 若无 XObject 目标 → inline 文本 redact 兜底
    │
-   └─ 否 ──▶ 【扫描/图片融合型 SCANNED】
-                • 渲染高分辨率图像
-                • RGB 灰度检测（三通道接近 + 亮度 120-240）
-                • 连通域面积过滤（大块=保留，小块=水印）
-                • 白色替换 → JPEG Q80 压缩 → 合成 PDF
+   └─ 否(SCANNED) ──▶ 像素法兜底（仅扫描件/图片融合水印）
+                      渲染→RGB灰度/彩色检测→连通域保护→JPEG压缩
+                      ⚠️ 会丢失文本可选性，体积需控 ≤1.5x
 ```
+
+### 为什么 Form XObject 删除优于 redact / 像素法？
+
+- **redact** 是矩形区域擦除，水印 bbox 与正文重叠时会误伤正文（很多公众号水印斜跨正文）。
+- **Form XObject 删除**是**对象级别**的——只移除水印绘制指令，正文对象的每个字节都 untouched。
+- **像素法**会把整页炸成图，毁掉文本可选性、留残影、漏黑色推广、易膨胀体积——它是扫描件的兜底，不是分层型的正解。
 
 ---
 
-## ⚙️ 命令行参数
+## ⚙️ 命令行参数（`remove_watermark.py`）
 
 | 参数 | 简写 | 默认值 | 说明 |
 |------|------|--------|------|
 | `source` | - | 必填 | 输入 PDF 文件或目录 |
-| `--mode` | - | `gray` | 处理模式：`gray`（灰度）/ `color`（彩色） |
-| `--output` | `-o` | 同目录 | 输出目录 |
-| `--rmin` | - | 175 | 彩色模式 R 通道最小值 |
-| `--rmax` | - | 255 | 彩色模式 R 通道最大值 |
-| `--gmax` | - | 175 | 彩色模式 G 通道最大值 |
-| `--bmax` | - | 175 | 彩色模式 B 通道最大值 |
-| `--gray-min` | - | 120 | 灰度模式最小亮度（浅灰=120，深灰=80） |
-| `--gray-max` | - | 240 | 灰度模式最大亮度 |
-| `--gray-diff` | - | 30 | 灰度模式 RGB 最大差值（严格=30，宽松=45） |
-| `--zoom` | - | 2 | 渲染缩放倍数（1-3，越大越清晰越慢） |
-| `--quality` | - | 80 | JPEG 压缩质量（1-100，控制输出体积） |
+| `--mode` | - | `auto` | `auto`(智能) / `form`(仅Form无损) / `gray` / `color`(像素法) |
+| `--output` | `-o` | 同目录 | 输出文件或目录 |
+| `--zoom` | - | 2 | 像素法渲染缩放倍数（1-3） |
+| `--quality` | - | 80 | JPEG 压缩质量（1-100，控制体积） |
+| `--gray-min/max/diff` | - | 120/240/30 | 灰度检测：亮度范围与 RGB 最大差值 |
+| `--rmin/rmax/gmax/bmax` | - | 175/255/175/175 | 彩色检测：RGB 阈值 |
 
 ---
 
 ## 📊 实际案例
 
-| 场景 | 类型 | 处理 | 效果 |
-|------|------|------|------|
+| 场景 | 类型 | 处理方法 | 效果 |
+|------|------|----------|------|
+| 公众号文章合集（有水印/推广 Form）| LAYERED | Form XObject 无损删除 | 水印+推广清除，正文完整、文本可选、体积更小 |
 | 微信/QQ 聊天截图（纯图版）| SCANNED | 灰色斜铺像素法 | 斜向灰色水印清除，聊天内容完好 |
-| 公众号文章合集（有文本层）| LAYERED | redact 遮盖 | 底部二维码/推广区清除，正文完好 |
 | 粉色标题/日期水印 | SCANNED/COLOR | 彩色 RGB 匹配 | 粉色文字替换白色 |
 
 ---
@@ -106,10 +120,11 @@ pdf-watermark-removal/
 ├── README.md                   # 本文档
 ├── _meta.json                  # 元数据
 └── scripts/
-    ├── pdf_watermark.py        # 主程序（单文件/目录去水印）
+    ├── remove_watermark.py     # ★ 主脚本：自动分类 + Form 无损优先 + 像素兜底
+    ├── pdf_watermark.py        # 纯像素法脚本（扫描件/调试用）
+    ├── batch_watermark.py      # 目录批量封装（复用主脚本逻辑）
     ├── requirements.txt        # Python 依赖
-    ├── setup.bat               # Windows 安装脚本
-    └── ...（历史版本脚本）
+    └── setup.bat               # Windows 安装脚本
 ```
 
 ---
@@ -117,13 +132,13 @@ pdf-watermark-removal/
 ## 🔧 底层强制规则（不可违背）
 
 1. **先分类，再选策略**（规则 0，最高优先级）
-   - LAYERED → 直接删对象；SCANNED → 像素法。禁止一刀切。
+   - LAYERED 首选 Form XObject 无损删除；无 XObject 目标再 inline redact；SCANNED 才走像素法。
 2. **输出体积受控**
-   - ≤ 源文件 1.5 倍，理想接近或小于源文件
-   - 禁止无损 PNG 合成；强制 JPEG Q80 + `garbage=4, deflate=True`
-3. **先分析水印像素颜色再处理**——禁止凭经验假设颜色
-4. **保持排版与内容完整**
-5. **输出命名**：原文件名 + `_无水印`，同目录输出
+   - ≤ 源文件 1.5 倍，理想接近或小于源文件。
+   - 禁止无损 PNG 合成；强制 JPEG 压缩 + `garbage=4, deflate=True`。
+3. **先分析水印颜色/结构再处理**——禁止凭经验假设（曾误判灰色为粉色）。
+4. **保持排版与内容完整**——正文、图片、文本可选性不被破坏（分层无损法天然满足）。
+5. **输出命名**：原文件名 + `_无水印`，同目录输出。
 
 ---
 
