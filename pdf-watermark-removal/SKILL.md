@@ -1,14 +1,17 @@
 ---
 name: pdf-watermark-removal
-version: "2.0"
-description: "PDF去水印工具 - 支持灰色斜向平铺水印、彩色水印等多种类型"
+version: "2.2"
+description: "PDF去水印工具 - 支持分层型Form XObject无损删除与扫描件像素法；含水印自动检测（类型/位置/透明度/重复模式）"
 author: WorkBuddy AI
 trigger:
   - "去水印"
   - "清理水印"
   - "PDF去水印"
+  - "检测水印"
+  - "识别水印"
   - "remove watermark"
   - "watermark removal"
+  - "detect watermark"
 ---
 
 # PDF 去水印 Skill
@@ -151,12 +154,45 @@ python remove_watermark.py input.pdf --mode color --rmin 180 --gmax 120 --bmax 1
 python remove_watermark.py input.pdf -o output/clean.pdf
 ```
 
+**水印自动检测 `detect_watermark.py`（去水印前先判断，或独立使用）：**
+```bash
+python detect_watermark.py input.pdf                 # 人类可读结论（是否含水印/推广）
+python detect_watermark.py input.pdf --json -o report.json   # 结构化 JSON 报告
+python detect_watermark.py input.pdf --sample 5      # 仅分析前 5 页（提速）
+```
+返回：是否含水印 (`has_watermark`)、是否含推广 (`has_promo`)、置信度、文档类型
+(`layered`/`scanned`)、以及每种水印的属性（位置/透明度/旋转角/重复模式/内容）。
+
 **老脚本 `pdf_watermark.py`（纯像素法，仅扫描件/调试用）：**
 ```bash
 python pdf_watermark.py input.pdf --mode gray
 python pdf_watermark.py input.pdf --mode gray --gray-min 80 --gray-max 230
 python pdf_watermark.py input.pdf --mode color --rmin 180 --gmax 120 --bmax 130
 ```
+
+## 水印自动检测能力 (detect_watermark.py)
+
+在去水印之前（或独立审计）可先**自动检测** PDF 是否含水印、水印类型与属性。覆盖四类分辨逻辑：
+
+1. **背景层重复半透明文字/图案** — 解析 Form XObject，识别灰度填充 (`0.5 0.5 0.5 rg`) 或带 `/Subtype /Watermark` 标记的对象，并跨页统计出现次数判断重复性。
+2. **覆盖正文上方、与正文无关的重复元素** — 同一 XObject 在每页以相同内容/位置出现（跨页配准），且与正文文本无关 → 判为水印/推广覆盖物。
+3. **固定位置浅色/低不透明图形** — 页眉/页脚区域 (`y<7%H` 或 `y>93%H`) 或带旋转 (`角度>5°`) 的浅色图形；正文区中灰度或旋转的浅色元素 → 水印。
+4. **区分水印与正常页眉页脚** — 页眉/页脚 XObject 若含推广关键词（公众号/二维码/入群等）判为 `promo`；若仅为页码/文档标题（如「第 3 页」）判为 `normal_header_footer` 并**排除**出「水印」结论；其它非灰度、无标记的普通图形（Logo/图片）判为 `graphic`，不报水印。
+
+**路径**：矢量/分层型走 Form XObject + 文本层分析（首选）；扫描/图片融合型走像素级灰度检测（仅当 `doc_type==scanned` 时触发，避免分层文档误报）。
+
+**输出结构**（`detect_watermark(path) -> dict`）：
+- `has_watermark` / `has_promo` (bool)、`confidence` (0~1)、`doc_type` (`layered`/`scanned`)
+- `watermarks`: 去重后的明细列表，每项含
+  - `type`: `watermark` | `promo`
+  - `source`: `xobject` | `text-layer` | `pixel`
+  - `position`: `{area, bbox}`（area ∈ header / footer / center / side）
+  - `opacity` / `translucent`（半透明感）
+  - `rotation_deg`（旋转角，斜向水印的特征）
+  - `content`: 可读文字（如「进圈加v：3030423182」）或「(页眉推广文字)」等
+  - `repetition`: `{appears_on_pages, total_pages, repeated_across_pages, pattern}`
+    （pattern ∈ per-page / tiled / single / fixed-position）
+- `normal_header_footer`: 被明确排除的正常页眉页脚
 
 ## 技术方案
 
