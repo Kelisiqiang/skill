@@ -17,6 +17,7 @@
 - 🔍 **连通域面积过滤**：区分「水印（细碎笔画）」与「图片内容（大块灰色）」，保护正文图片
 - 📦 **输出体积受控**：强制 JPEG 压缩 + `garbage=4, deflate=True`，输出 ≤ 源文件 1.5 倍
 - 🎯 **彩色水印**：支持粉色/红色等（RGB 阈值匹配）
+- 🔎 **水印自动检测**：`detect_watermark.py` 自动判断是否含水印及类型，提取位置/透明度/旋转角/重复模式，并区分水印与正常页眉页脚
 - ⚡ **批量处理**：目录批量、自动分类、统一统计
 
 ---
@@ -54,7 +55,30 @@ python pdf_watermark.py input.pdf --mode gray
 python pdf_watermark.py input.pdf --mode color --rmin 180 --gmax 120 --bmax 130
 ```
 
-### 4. 在 WorkBuddy 对话中触发
+### 4. 水印自动检测 `detect_watermark.py`
+
+去水印前（或独立审计）可先自动检测：
+
+```bash
+# 人类可读结论：是否含水印 / 推广、类型、位置、重复模式
+python detect_watermark.py input.pdf
+
+# 结构化 JSON 报告（含每类水印的位置/透明度/旋转角/重复模式）
+python detect_watermark.py input.pdf --json -o report.json
+
+# 仅分析前 5 页（提速）
+python detect_watermark.py input.pdf --sample 5
+```
+
+**四类分辨逻辑**：
+1. **背景层重复半透明文字/图案** — 灰度填充 (`0.5 0.5 0.5 rg`) 或 `/Subtype /Watermark` 的 Form XObject，跨页统计重复性。
+2. **覆盖正文上方、与正文无关的重复元素** — 同内容/同位置跨页出现的 Form（跨页配准）→ 水印/推广。
+3. **固定位置浅色/低不透明图形** — 页眉/页脚区域或带旋转的浅色图形；正文区灰度/旋转元素 → 水印。
+4. **区分水印与正常页眉页脚** — 含公众号/二维码等关键词 → `promo`；仅页码/标题 → `normal_header_footer`（排除）；普通 Logo/图片 → `graphic`（不报）。
+
+**返回字段**：`has_watermark` / `has_promo` / `confidence` / `doc_type`(`layered`/`scanned`) / `watermarks[]`（每项含 `type`、`source`、`position`、`opacity`、`translucent`、`rotation_deg`、`content`、`repetition`）/ `normal_header_footer[]`。
+
+### 5. 在 WorkBuddy 对话中触发
 
 当用户说"去水印"、"清理水印"、"去除水印"、"PDF 去水印" 并提供 PDF 路径时，自动处理。
 
@@ -109,6 +133,7 @@ python pdf_watermark.py input.pdf --mode color --rmin 180 --gmax 120 --bmax 130
 | 公众号文章合集（有水印/推广 Form）| LAYERED | Form XObject 无损删除 | 水印+推广清除，正文完整、文本可选、体积更小 |
 | 微信/QQ 聊天截图（纯图版）| SCANNED | 灰色斜铺像素法 | 斜向灰色水印清除，聊天内容完好 |
 | 粉色标题/日期水印 | SCANNED/COLOR | 彩色 RGB 匹配 | 粉色文字替换白色 |
+| 任意 PDF 审计 | — | `detect_watermark.py` | 返回 `has_watermark`/类型/位置/透明度/重复模式，区分正常页眉页脚 |
 
 ---
 
@@ -121,6 +146,7 @@ pdf-watermark-removal/
 ├── _meta.json                  # 元数据
 └── scripts/
     ├── remove_watermark.py     # ★ 主脚本：自动分类 + Form 无损优先 + 像素兜底
+    ├── detect_watermark.py     # 水印自动检测：类型/位置/透明度/重复模式/区分页眉页脚
     ├── pdf_watermark.py        # 纯像素法脚本（扫描件/调试用）
     ├── batch_watermark.py      # 目录批量封装（复用主脚本逻辑）
     ├── requirements.txt        # Python 依赖
