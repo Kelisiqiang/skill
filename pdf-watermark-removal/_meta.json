@@ -1,16 +1,19 @@
 {
   "skill_id": "pdf-watermark-removal",
   "name": "PDF去水印工具",
-  "description": "PDF去水印工具 - 智能双路径：分层型优先Form XObject无损删除水印/推广对象（正文图片毫发无损），扫描型用灰度/彩色像素法+连通域保护去水印，输出体积≤源文件1.5倍",
-  "version": "2.1.0",
+  "description": "PDF去水印工具 - 智能双路径：分层型优先Form XObject无损删除水印/推广对象（正文图片毫发无损），扫描型用灰度/彩色像素法+连通域保护去水印；含水印自动检测（类型/位置/透明度/重复模式/区分正常页眉页脚），输出体积≤源文件1.5倍",
+  "version": "2.2.0",
   "author": "WorkBuddy",
   "triggers": [
     "去水印",
     "清理水印",
     "PDF去水印",
     "移除水印",
+    "检测水印",
+    "识别水印",
     "pdf watermark",
-    "remove watermark"
+    "remove watermark",
+    "detect watermark"
   ],
   "requires": {
     "bins": ["python3"],
@@ -18,6 +21,7 @@
   },
   "entry_points": [
     "scripts/remove_watermark.py",
+    "scripts/detect_watermark.py",
     "scripts/batch_watermark.py",
     "scripts/pdf_watermark.py"
   ],
@@ -25,6 +29,7 @@
     "pdf",
     "watermark",
     "去水印",
+    "水印检测",
     "pdf处理",
     "文档处理",
     "form xobject"
